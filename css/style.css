@@ -1,0 +1,226 @@
+
+:root {
+    --bg-color: #010101;
+    --card-bg: #141414;
+    --primary: #FFA500;
+    --accent: #FF8C00;
+    --text-color: #f0f0f0;
+    --danger-color: #FF6347;
+    --border-radius: 12px;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 18px;
+}
+
+.container {
+    max-width: 960px;
+    margin: auto;
+    padding: 20px;
+    position: relative;
+    z-index: 1;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 2.8rem;
+    color: var(--primary);
+    text-shadow: 0 0 12px var(--primary);
+}
+
+header p {
+    margin-top: 12px;
+    font-size: 1.1rem;
+    color: #bbb;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    gap: 35px;
+}
+
+section {
+    background-color: var(--card-bg);
+    padding: 25px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 0 12px 3px var(--accent);
+}
+
+section h2 {
+    margin-top: 0;
+    color: var(--primary);
+    text-shadow: 0 0 6px var(--primary);
+    font-weight: 600;
+    font-size: 1.5rem;
+}
+
+.form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.form-row label {
+    flex-shrink: 0;
+    font-size: 1rem;
+    color: var(--accent);
+}
+
+.form-row input[type="text"], .form-row input[type="number"] {
+    flex: 1 1 200px;
+    padding: 12px 14px;
+    font-size: 1rem;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: #1e1e1e;
+    color: var(--text-color);
+}
+
+.form-row select {
+    flex: 0 1 150px;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    background: #1e1e1e;
+    color: var(--text-color);
+    font-size: 1rem;
+}
+
+#add-user-button {
+    display: block;
+    width: 100%;
+    max-width: 250px;
+    padding: 14px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 6px;
+    background-color: var(--primary);
+    color: #000;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    margin-top: 10px;
+}
+
+#add-user-button:hover {
+    background-color: var(--accent);
+}
+
+.cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.card {
+    background-color: var(--card-bg);
+    padding: 18px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 0 12px 2px var(--primary);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.card.expired {
+    box-shadow: 0 0 12px 2px var(--danger-color);
+}
+
+.card h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    color: var(--primary);
+}
+
+.card .time-left {
+    font-size: 1rem;
+    margin: 4px 0;
+}
+
+.card .status {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.card button.delete {
+    align-self: flex-start;
+    background: var(--danger-color);
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+}
+
+.card button.delete:hover {
+    background: #ff2e00;
+}
+
+.snowflakes {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+.snowflake {
+    position: absolute;
+    top: -10px;
+    background: radial-gradient(rgba(255, 255, 255, 0.9), rgba(230, 247, 255, 0.5));
+    border-radius: 50%;
+    opacity: 0.9;
+    animation-name: fall;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+@keyframes fall {
+    0% {
+        transform: translateY(-10px);
+    }
+    100% {
+        transform: translateY(110vh);
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        font-size: 16px;
+    }
+    header h1 {
+        font-size: 2.2rem;
+    }
+    section h2 {
+        font-size: 1.3rem;
+    }
+    #add-user-button {
+        width: 100%;
+    }
+    .form-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .form-row select {
+        flex: 1 1 auto;
+    }
+}
