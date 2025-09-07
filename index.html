@@ -1,47 +1,94 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Аренда VIP сервера</title>
-    <link rel="stylesheet" href="css/style.css" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Аренда VIP сервера</title>
+  <link rel="stylesheet" href="css/style.css"/>
 </head>
 <body>
-    <div class="snowflakes" aria-hidden="true"></div>
-    <div class="container">
-        <header>
-            <h1>Аренда VIP сервера</h1>
-            <p>Управляйте активными и просроченными сессиями аренды</p>
-        </header>
-        <main>
-            <section id="add-user-section">
-                <h2>Добавить новую аренду</h2>
-                <div class="form-row">
-                    <label for="nickname">Никнейм:</label>
-                    <input type="text" id="nickname" name="nickname" placeholder="Введите никнейм" />
-                </div>
-                <div class="form-row time-input">
-                    <label for="durationValue">Количество:</label>
-                    <input type="number" id="durationValue" name="durationValue" min="1" placeholder="Введите число" />
-                    <select id="durationUnit" name="durationUnit">
-                        <option value="hours">Часы</option>
-                        <option value="minutes">Минуты</option>
-                    </select>
-                </div>
-                <button id="add-user-button">Добавить аренду</button>
-            </section>
-            <section id="active-users-section">
-                <h2>Активные аренды</h2>
-                <div id="active-users" class="cards-container"></div>
-            </section>
-            <section id="expired-users-section">
-                <h2>Просроченные аренды</h2>
-                <div id="expired-users" class="cards-container"></div>
-            </section>
-        </main>
-    </div>
-    <audio id="notificationSound" src="audio/notification.mp3"></audio>
-    <script src="js/script.js"></script>
+  <div class="app-wrap">
+    <header class="app-header">
+      <div class="header-row">
+        <div>
+          <h1>Аренда VIP сервера</h1>
+          <p>Управляйте активными и просроченными сессиями аренды</p>
+        </div>
+        <div id="auth-box" class="auth-box"></div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section id="add-user-section" class="panel">
+        <h2>Добавить новую аренду</h2>
+        <div class="form-row">
+          <label for="nickname">Никнейм</label>
+          <input type="text" id="nickname" name="nickname" placeholder="Введите никнейм"/>
+        </div>
+        <div class="form-row">
+          <label for="durationValue">Время</label>
+          <div class="inline-inputs">
+            <input type="number" id="durationValue" name="durationValue" min="1" placeholder="Количество"/>
+            <div class="select-wrap" data-select="durationUnit">
+              <button type="button" class="select-toggle" aria-haspopup="listbox" aria-expanded="false">Часы</button>
+              <ul class="select-menu" role="listbox" tabindex="-1">
+                <li role="option" data-value="hours" aria-selected="true">Часы</li>
+                <li role="option" data-value="minutes">Минуты</li>
+              </ul>
+            </div>
+            <select id="durationUnit" name="durationUnit" class="native-select-hidden">
+              <option value="hours" selected>Часы</option>
+              <option value="minutes">Минуты</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="add-shared-button" class="btn primary">Добавить в общий VIP</button>
+          <button id="add-solo-button" class="btn secondary">Добавить в соло VIP</button>
+        </div>
+      </section>
+
+      <section id="active-section" class="panel">
+        <h2>Активные аренды</h2>
+        <div class="panel-grid">
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <h3>Общий VIP</h3>
+            </div>
+            <div id="active-shared" class="cards-container"></div>
+          </div>
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <h3>Соло VIP</h3>
+            </div>
+            <div id="active-solo" class="cards-container"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="expired-section" class="panel">
+        <h2>Просроченные аренды</h2>
+        <div class="panel-grid">
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <h3>Общий VIP</h3>
+            </div>
+            <div id="expired-shared" class="cards-container"></div>
+          </div>
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <h3>Соло VIP</h3>
+            </div>
+            <div id="expired-solo" class="cards-container"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <audio id="notificationSound" src="audio/notification.mp3"></audio>
+  <script type="module" src="js/firebase.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/script.js"></script>
 </body>
 </html>
