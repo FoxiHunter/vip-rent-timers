@@ -3,7 +3,15 @@ import { onAuthStateChanged, signInWithPopup, signOut } from "https://www.gstati
 import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 function normalizeEmail(v) {
-  return String(v || "").trim().toLowerCase().replace(/\s+/g, "");
+  const s = String(v || "").trim().toLowerCase();
+  const m = s.match(/^([^@]+)@([^@]+)$/);
+  if (!m) return s;
+  let [_, local, domain] = m;
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.replace(/\./g, "").replace(/\+.*/, "");
+    domain = "gmail.com";
+  }
+  return `${local}@${domain}`;
 }
 
 function ensureUI() {

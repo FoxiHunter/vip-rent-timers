@@ -1,21 +1,33 @@
 import { db } from "./firebase.js";
 import {
   collection, addDoc, serverTimestamp, onSnapshot, query,
-  deleteDoc, doc, where, updateDoc, getDoc, getDocs
+  deleteDoc, doc, where, updateDoc, getDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 (function () {
   let activeIntervals = [];
   let resizeTimer = null;
   let unsub = null;
+  let unsubInvites = null;
   let currentUid = null;
   let teamUid = null;
   const sessionInvites = [];
 
-  function normalizeEmail(v){ return String(v||"").trim().toLowerCase().replace(/\s+/g,""); }
+  function normalizeEmail(v) {
+    const s = String(v || "").trim().toLowerCase();
+    const m = s.match(/^([^@]+)@([^@]+)$/);
+    if (!m) return s;
+    let [_, local, domain] = m;
+    if (domain === "gmail.com" || domain === "googlemail.com") {
+      local = local.replace(/\./g, "").replace(/\+.*/, "");
+      domain = "gmail.com";
+    }
+    return `${local}@${domain}`;
+  }
 
   function clearAllIntervals(){ for (const id of activeIntervals) clearInterval(id); activeIntervals = []; }
   function unsubscribe(){ if (typeof unsub === "function"){ try {unsub();} catch(_){} unsub = null; } }
+  function unsubscribeInvites(){ if (typeof unsubInvites === "function"){ try {unsubInvites();} catch(_){} unsubInvites = null; } }
 
   function applyContainerScroll(){
     const containers = document.querySelectorAll('.cards-container');
@@ -212,6 +224,22 @@ import {
     list.innerHTML=''; sessionInvites.forEach(email=>{ const item=document.createElement('div'); item.className='invite-item'; item.textContent=email; list.appendChild(item); });
   }
 
+  function renderIncomingInvites(invites) {
+    const list = document.getElementById('incoming-invites');
+    if (!list) return;
+    list.innerHTML = '';
+    invites.forEach(inv => {
+      const row = document.createElement('div');
+      row.className = 'invite-item';
+      row.textContent = `Приглашение от ${inv.fromUid}`;
+      const btn = document.createElement('button');
+      btn.textContent = 'Принять';
+      btn.addEventListener('click', () => acceptInvite(inv.id, inv.fromUid));
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+  }
+
   function openFriendModal(){
     const modal=document.getElementById('friend-modal'); if(!modal) return;
     modal.hidden=false;
@@ -222,47 +250,72 @@ import {
   }
   function closeFriendModal(){ const modal=document.getElementById('friend-modal'); if(modal) modal.hidden=true; }
 
-  async function addFriendAction(){
-    if(!window.__authUser || !window.__authUser.email){ alert('Пожалуйста, войдите через Google.'); return; }
-    const input=document.getElementById('friend-email-input');
-    const friendEmailLc=normalizeEmail(input?input.value:'');
-    const myEmailLc=normalizeEmail(window.__authUser.email||'');
-    if(!friendEmailLc || friendEmailLc===myEmailLc){ alert('Введите корректную почту друга.'); return; }
+  async function addFriendAction() {
+    if (!window.__authUser || !window.__authUser.email) {
+      alert('Пожалуйста, войдите через Google.');
+      return;
+    }
+    const input = document.getElementById('friend-email-input');
+    const toEmailLc = normalizeEmail(input ? input.value : '');
+    const myEmailLc = normalizeEmail(window.__authUser.email || '');
+    if (!toEmailLc || toEmailLc === myEmailLc) { alert('Введите корректную почту друга.'); return; }
 
-    let friendUidFound=null;
-    try{
-      const qRef=query(collection(db,'users'), where('email_lc','==',friendEmailLc));
-      const snap=await getDocs(qRef);
-      snap.forEach(docSnap=>{ friendUidFound=docSnap.id; });
-    }catch(_){}
-    if(!friendUidFound){ alert('Пользователь не найден.'); return; }
+    try {
+      await addDoc(collection(db, 'invites'), {
+        fromUid: window.__authUser.uid,
+        toEmail_lc: normalizeEmail(toEmail),
+        toEmail_raw_lc: String(toEmail).trim().toLowerCase(),
+        status: 'pending',
+        createdAt: serverTimestamp()
+    });
+    } catch (e) {
+      console.error('Ошибка создания инвайта', e);
+      alert('Ошибка создания инвайта: ' + (e?.message || e));
+      return;
+    }
 
-    const myUid=window.__authUser.uid;
-    if(friendUidFound===myUid){ alert('Невозможно добавить самого себя.'); return; }
-
-    try{
-      await updateDoc(doc(db,'users',myUid), {teamUid:friendUidFound});
-      await updateDoc(doc(db,'users',friendUidFound), {teamUid:myUid});
-    }catch(_){ alert('Ошибка добавления в команду.'); return; }
-
-    if(input) input.value='';
-    if(!sessionInvites.includes(friendEmailLc)) sessionInvites.push(friendEmailLc);
+    if (input) input.value = '';
+    if (!sessionInvites.includes(toEmailLc)) sessionInvites.push(toEmailLc);
     renderInvites();
-    teamUid=friendUidFound; closeFriendModal();
-    if(currentUid) startRealtime(currentUid);
-    showNotification('Команда успешно создана');
+    showNotification('Инвайт отправлен. Человек увидит его после входа.');
+  }
+
+  function watchIncomingInvites() {
+    unsubscribeInvites();
+    if (!window.__authUser || !window.__authUser.email) return;
+    const myEmailLc = normalizeEmail(window.__authUser.email);
+    const qRef = query(collection(db, 'invites'),
+      where('toEmail_lc', '==', myEmailLc),
+      where('status', '==', 'pending')
+    );
+    unsubInvites = onSnapshot(qRef, (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderIncomingInvites(items);
+    });
+  }
+
+  async function acceptInvite(inviteId, fromUid) {
+    if (!window.__authUser) return;
+    try {
+      await updateDoc(doc(db, 'users', window.__authUser.uid), { teamUid: fromUid });
+      await updateDoc(doc(db, 'invites', inviteId), { status: 'accepted' });
+      showNotification('Команда связана');
+      if (currentUid) startRealtime(currentUid);
+    } catch (e) {
+      console.error('Ошибка принятия инвайта', e);
+      alert('Ошибка принятия инвайта: ' + (e?.message || e));
+    }
   }
 
   async function leaveTeamAction(){
     if(!window.__authUser) return;
-    const myUid=window.__authUser.uid; const partner=teamUid;
+    const myUid=window.__authUser.uid;
     try{
       await updateDoc(doc(db,'users',myUid), {teamUid:null});
-      if(partner){
-        const p=await getDoc(doc(db,'users',partner));
-        if(p.exists() && p.data().teamUid===myUid) await updateDoc(doc(db,'users',partner), {teamUid:null});
-      }
-    }catch(_){ alert('Не удалось выйти из Team.'); return; }
+    }catch(e){
+      alert('Не удалось выйти из Team: ' + (e?.message || e));
+      return;
+    }
     teamUid=null; showNotification('Вы вышли из Team'); closeFriendModal(); if(currentUid) startRealtime(currentUid);
   }
 
@@ -305,8 +358,8 @@ import {
     document.getElementById('add-shared-button').addEventListener('click',()=>addUser('shared'));
     document.getElementById('add-solo-button').addEventListener('click',()=>addUser('solo'));
     window.addEventListener('resize',()=>{ clearTimeout(resizeTimer); resizeTimer=setTimeout(applyContainerScroll,180); });
-    document.addEventListener('auth:ready',(e)=>{ const uid=e.detail && e.detail.uid ? e.detail.uid : null; if(uid) startRealtime(uid); showNotification('Успешный вход'); });
-    document.addEventListener('auth:logout',()=>{ unsubscribe(); renderUsers([]); teamUid=null; currentUid=null; });
+    document.addEventListener('auth:ready',(e)=>{ const uid=e.detail && e.detail.uid ? e.detail.uid : null; if(uid) startRealtime(uid); watchIncomingInvites(); showNotification('Успешный вход'); });
+    document.addEventListener('auth:logout',()=>{ unsubscribe(); unsubscribeInvites(); renderUsers([]); teamUid=null; currentUid=null; });
     document.addEventListener('friend:toggle',()=>{ const m=document.getElementById('friend-modal'); if(!m) return; if(m.hidden) openFriendModal(); else closeFriendModal(); });
     const addBtn=document.getElementById('add-friend-confirm'); if(addBtn) addBtn.addEventListener('click', addFriendAction);
     const leaveBtn=document.getElementById('leave-team'); if(leaveBtn) leaveBtn.addEventListener('click', leaveTeamAction);
