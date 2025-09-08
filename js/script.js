@@ -231,11 +231,20 @@ import {
     invites.forEach(inv => {
       const row = document.createElement('div');
       row.className = 'invite-item';
-      row.textContent = `Приглашение от ${inv.fromUid}`;
-      const btn = document.createElement('button');
-      btn.textContent = 'Принять';
-      btn.addEventListener('click', () => acceptInvite(inv.id, inv.fromUid));
-      row.appendChild(btn);
+      const label = document.createElement('div');
+      label.textContent = `Приглашение от ${inv.fromEmail_raw || inv.fromEmail_lc || inv.fromUid}`;
+      const btns = document.createElement('div');
+      const acceptBtn = document.createElement('button');
+      acceptBtn.textContent = 'Принять';
+      acceptBtn.addEventListener('click', () => acceptInvite(inv.id, inv.fromUid));
+      const declineBtn = document.createElement('button');
+      declineBtn.textContent = 'Отказать';
+      declineBtn.style.marginLeft = '8px';
+      declineBtn.addEventListener('click', () => declineInvite(inv.id));
+      btns.appendChild(acceptBtn);
+      btns.appendChild(declineBtn);
+      row.appendChild(label);
+      row.appendChild(btns);
       list.appendChild(row);
     });
   }
@@ -250,42 +259,43 @@ import {
   }
   function closeFriendModal(){ const modal=document.getElementById('friend-modal'); if(modal) modal.hidden=true; }
 
-async function addFriendAction() {
-  if (!window.__authUser || !window.__authUser.email) {
-    alert('Пожалуйста, войдите через Google.');
-    return;
+  async function addFriendAction() {
+    if (!window.__authUser || !window.__authUser.email) {
+      alert('Пожалуйста, войдите через Google.');
+      return;
+    }
+
+    const input = document.getElementById('friend-email-input');
+    const toEmailRaw = String(input ? input.value : '').trim().toLowerCase();
+    const toEmailLc = normalizeEmail(toEmailRaw);
+    const myEmailLc = normalizeEmail(window.__authUser.email || '');
+
+    if (!toEmailRaw || toEmailLc === myEmailLc) {
+      alert('Введите корректную почту друга.');
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, 'invites'), {
+        fromUid: window.__authUser.uid,
+        fromEmail_lc: normalizeEmail(window.__authUser.email || ''),
+        fromEmail_raw: window.__authUser.email || '',
+        toEmail_lc: toEmailLc,
+        toEmail_raw_lc: toEmailRaw,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.error('Ошибка создания инвайта', e);
+      alert('Ошибка создания инвайта: ' + (e?.message || e));
+      return;
+    }
+
+    if (input) input.value = '';
+    if (!sessionInvites.includes(toEmailLc)) sessionInvites.push(toEmailLc);
+    renderInvites();
+    showNotification('Инвайт отправлен. Человек увидит его после входа.');
   }
-
-  const input = document.getElementById('friend-email-input');
-  const toEmailRaw = String(input ? input.value : '').trim().toLowerCase();
-  const toEmailLc = normalizeEmail(toEmailRaw);
-  const myEmailLc = normalizeEmail(window.__authUser.email || '');
-
-  if (!toEmailRaw || toEmailLc === myEmailLc) {
-    alert('Введите корректную почту друга.');
-    return;
-  }
-
-  try {
-    await addDoc(collection(db, 'invites'), {
-      fromUid: window.__authUser.uid,
-      toEmail_lc: toEmailLc,
-      toEmail_raw_lc: toEmailRaw,
-      status: 'pending',
-      createdAt: serverTimestamp()
-    });
-  } catch (e) {
-    console.error('Ошибка создания инвайта', e);
-    alert('Ошибка создания инвайта: ' + (e?.message || e));
-    return;
-  }
-
-  if (input) input.value = '';
-  if (!sessionInvites.includes(toEmailLc)) sessionInvites.push(toEmailLc);
-  renderInvites();
-  showNotification('Инвайт отправлен. Человек увидит его после входа.');
-}
-
 
   function watchIncomingInvites() {
     unsubscribeInvites();
@@ -311,6 +321,16 @@ async function addFriendAction() {
     } catch (e) {
       console.error('Ошибка принятия инвайта', e);
       alert('Ошибка принятия инвайта: ' + (e?.message || e));
+    }
+  }
+
+  async function declineInvite(inviteId){
+    try {
+      await updateDoc(doc(db,'invites', inviteId), { status:'declined' });
+      showNotification('Приглашение отклонено');
+    } catch(e){
+      console.error('Ошибка отклонения инвайта', e);
+      alert('Ошибка отклонения: ' + (e?.message || e));
     }
   }
 
