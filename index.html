@@ -34,11 +34,15 @@
               <ul class="select-menu" role="listbox" tabindex="-1">
                 <li role="option" data-value="hours" aria-selected="true">Часы</li>
                 <li role="option" data-value="minutes">Минуты</li>
+                <li role="option" data-value="days">Дни</li>
+                <li role="option" data-value="months">Месяцы</li>
               </ul>
             </div>
             <select id="durationUnit" name="durationUnit" class="native-select-hidden">
               <option value="hours" selected>Часы</option>
               <option value="minutes">Минуты</option>
+              <option value="days">Дни</option>
+              <option value="months">Месяцы</option>
             </select>
           </div>
         </div>
@@ -87,6 +91,31 @@
   </div>
 
   <audio id="notificationSound" src="audio/notification.mp3"></audio>
+
+  <div id="friend-modal" class="modal" hidden>
+    <div class="modal-content">
+      <h3>Добавить друга</h3>
+      <div class="form-row">
+        <label>Ваша почта</label>
+        <div id="my-email" class="my-email"></div>
+      </div>
+      <div class="form-row">
+        <label for="friend-email-input">Почта друга</label>
+        <input type="email" id="friend-email-input" placeholder="Введите почту друга" />
+      </div>
+
+      <div class="invites-container">
+        <div class="invites-title">Отправленные приглашения</div>
+        <div id="invites-list" class="invites-list"></div>
+      </div>
+
+      <div class="actions">
+        <button id="add-friend-confirm" class="btn primary">Добавить</button>
+        <button id="leave-team" class="btn secondary">Выйти из Team</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="js/firebase.js"></script>
   <script type="module" src="js/auth.js"></script>
   <script type="module" src="js/script.js"></script>

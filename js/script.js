@@ -1,248 +1,316 @@
 import { db } from "./firebase.js";
-import { collection, addDoc, serverTimestamp, onSnapshot, query, deleteDoc, doc, where, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  collection, addDoc, serverTimestamp, onSnapshot, query,
+  deleteDoc, doc, where, updateDoc, getDoc, getDocs
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 (function () {
   let activeIntervals = [];
   let resizeTimer = null;
   let unsub = null;
+  let currentUid = null;
+  let teamUid = null;
+  const sessionInvites = [];
 
-  function clearAllIntervals() {
-    for (const id of activeIntervals) clearInterval(id);
-    activeIntervals = [];
-  }
+  function clearAllIntervals(){ for (const id of activeIntervals) clearInterval(id); activeIntervals = []; }
+  function unsubscribe(){ if (typeof unsub === "function"){ try {unsub();} catch(_){} unsub = null; } }
 
-  function unsubscribe() {
-    if (typeof unsub === "function") {
-      try { unsub(); } catch(e) {}
-      unsub = null;
-    }
-  }
-
-  function applyContainerScroll() {
+  function applyContainerScroll(){
     const containers = document.querySelectorAll('.cards-container');
-    containers.forEach(container => {
-      const items = Array.from(container.children);
-      if (items.length <= 2) {
-        container.style.maxHeight = '';
-        container.style.overflowY = '';
-        return;
-      }
-      const gap = parseFloat(getComputedStyle(container).rowGap || '0');
-      const firstTwo = items.slice(0, 2);
-      const sum = firstTwo.reduce((acc, el) => acc + el.getBoundingClientRect().height, 0);
-      const maxH = sum + gap * 1;
-      container.style.maxHeight = maxH + 'px';
-      container.style.overflowY = 'auto';
+    containers.forEach(container=>{
+      const items=[...container.children];
+      if(items.length<=2){ container.style.maxHeight=''; container.style.overflowY=''; return; }
+      const gap=parseFloat(getComputedStyle(container).rowGap||'0');
+      const h=items.slice(0,2).reduce((a,el)=>a+el.getBoundingClientRect().height,0);
+      container.style.maxHeight=(h+gap)+'px';
+      container.style.overflowY='auto';
     });
   }
 
-  function renderUsers(users) {
+  function ensureAppend(container, el){ if(el.parentElement!==container) container.appendChild(el); }
+
+  function renderUsers(users){
     clearAllIntervals();
-    const acShared = document.getElementById('active-shared');
-    const acSolo = document.getElementById('active-solo');
-    const exShared = document.getElementById('expired-shared');
-    const exSolo = document.getElementById('expired-solo');
-    acShared.innerHTML = '';
-    acSolo.innerHTML = '';
-    exShared.innerHTML = '';
-    exSolo.innerHTML = '';
+    const acShared=document.getElementById('active-shared');
+    const acSolo=document.getElementById('active-solo');
+    const exShared=document.getElementById('expired-shared');
+    const exSolo=document.getElementById('expired-solo');
+    acShared.innerHTML=''; acSolo.innerHTML=''; exShared.innerHTML=''; exSolo.innerHTML='';
 
-    users.forEach((user) => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = '<div class="card-top"><div class="nick"></div><div class="status-badge"></div></div><div class="time-left"></div><div class="actions-row"><button class="delete">Удалить</button></div>';
-
-      const nick = card.querySelector('.nick');
-      const badge = card.querySelector('.status-badge');
-      const timeLeft = card.querySelector('.time-left');
-      const del = card.querySelector('.delete');
-
-      nick.textContent = user.nickname;
-      badge.textContent = 'Активно';
-
-      del.addEventListener('click', async () => {
-        const me = window.__authUser && window.__authUser.uid ? window.__authUser.uid : null;
-        if (!me || me !== user.ownerUid) {
-          alert('Удалять может только владелец записи.');
-          return;
-        }
-        try { await deleteDoc(doc(db, 'rentals', user.id)); } catch(e) { alert('Ошибка удаления'); }
+    users.forEach(user=>{
+      const card=document.createElement('div');
+      card.className='card';
+      card.innerHTML='<div class="card-top"><div class="nick"></div><div class="status-badge"></div></div><div class="time-left"></div><div class="actions-row"><button class="delete">Удалить</button></div>';
+      const nick=card.querySelector('.nick');
+      const badge=card.querySelector('.status-badge');
+      const timeLeft=card.querySelector('.time-left');
+      const del=card.querySelector('.delete');
+      nick.textContent=user.nickname;
+      badge.textContent='Активно';
+      if(user.team){
+        card.classList.add('team-owned');
+        const tb=document.createElement('span');
+        tb.className='team-badge'; tb.textContent='Team';
+        card.querySelector('.card-top').appendChild(tb);
+      }
+      del.addEventListener('click', async()=>{
+        const me=window.__authUser && window.__authUser.uid ? window.__authUser.uid : null;
+        if(!me || me!==user.ownerUid){ alert('Удалять может только владелец записи.'); return; }
+        try{ await deleteDoc(doc(db,'rentals',user.id)); }catch(_){ alert('Ошибка удаления'); }
       });
 
-      async function updateTime() {
-        const now = Date.now();
-        const diff = user.expiresMs - now;
-        if (diff <= 0) {
-          if (user.tier === 'solo') exSolo.appendChild(card);
-          else exShared.appendChild(card);
+      async function updateTime(){
+        const now=Date.now();
+        const diff=user.expiresMs-now;
+        if(diff<=0){
+          ensureAppend(user.tier==='solo'?exSolo:exShared, card);
+          if(card.dataset.state!=='expired'){
+            card.dataset.state='expired';
+            card.classList.remove('anim-enter-active');
+            card.classList.add('anim-to-expired');
+            setTimeout(()=>card.classList.remove('anim-to-expired'),650);
+          }
           card.classList.add('expired');
-          badge.textContent = 'Просрочено';
-          timeLeft.textContent = 'Оставшееся время: 0с';
-          if (!user.notified) {
-            try { await updateDoc(doc(db, 'rentals', user.id), { notified: true }); } catch(e) {}
-            const audio = document.getElementById('notificationSound');
-            if (audio) {
-              audio.currentTime = 0;
-              audio.play();
-              setTimeout(() => { try { audio.pause(); audio.currentTime = 0; } catch(e) {} }, 5000);
-            }
+          badge.textContent='Просрочено';
+          timeLeft.textContent='Оставшееся время: 0с';
+          if(!user.notified){
+            try{ await updateDoc(doc(db,'rentals',user.id), {notified:true}); }catch(_){}
+            const audio=document.getElementById('notificationSound');
+            if(audio){ audio.currentTime=0; audio.play(); setTimeout(()=>{ try{audio.pause(); audio.currentTime=0;}catch(_){}} ,5000); }
+            showNotification('Аренда '+user.nickname+' просрочена');
           }
           return;
         }
-        const seconds = Math.floor((diff / 1000) % 60);
-        const minutes = Math.floor((diff / (1000 * 60)) % 60);
-        const hours = Math.floor((diff / (1000 * 60 * 60)));
-        if (user.tier === 'solo') acSolo.appendChild(card);
-        else acShared.appendChild(card);
-        card.classList.remove('expired');
-        badge.textContent = 'Активно';
-        timeLeft.textContent = 'Оставшееся время: ' + hours + 'ч ' + minutes + 'м ' + seconds + 'с';
+        const totalSeconds=Math.floor(diff/1000);
+        const days=Math.floor(totalSeconds/(24*3600));
+        const hours=Math.floor((totalSeconds%(24*3600))/3600);
+        const minutes=Math.floor((totalSeconds%3600)/60);
+        const seconds=totalSeconds%60;
+        const target=user.tier==='solo'?acSolo:acShared;
+        if(card.dataset.state!=='active'){
+          ensureAppend(target, card);
+          card.dataset.state='active';
+          card.classList.remove('expired','anim-to-expired','anim-enter-expired');
+          card.classList.add('anim-enter-active');
+          setTimeout(()=>card.classList.remove('anim-enter-active'),600);
+        } else ensureAppend(target, card);
+        badge.textContent='Активно';
+        timeLeft.textContent='Оставшееся время: '+(days>0?(days+'д '):'')+hours+'ч '+minutes+'м '+seconds+'с';
       }
-
       updateTime();
-      const id = setInterval(updateTime, 1000);
+      const id=setInterval(updateTime,1000);
       activeIntervals.push(id);
     });
 
     applyContainerScroll();
   }
 
-  async function addUser(tier) {
-    if (!window.__authUser) {
-      alert('Пожалуйста, войдите через Google, чтобы добавлять аренды.');
-      return;
+  function safeExpiryMs(value, unit){
+    const now = new Date();
+    const v = Number(value);
+    if (!isFinite(v) || v <= 0) return null;
+
+    const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+
+    if (unit === 'months'){
+      const whole = Math.floor(v);
+      const fracDays = Math.round((v - whole) * 30);
+      const d = new Date(now);
+      d.setHours(0,0,0,0);
+      d.setMonth(d.getMonth() + clamp(whole, 0, 120));
+      d.setDate(d.getDate() + clamp(fracDays, 0, 31));
+      return Math.min(d.getTime(), now.getTime() + 10 * 365 * 24 * 3600 * 1000);
     }
-    const nicknameInput = document.getElementById('nickname');
-    const valueInput = document.getElementById('durationValue');
-    const unitSelect = document.getElementById('durationUnit');
-    const nickname = nicknameInput.value.trim();
-    const value = parseFloat(valueInput.value.trim());
-    const unit = unitSelect.value;
-    if (!nickname || isNaN(value) || value <= 0) {
-      alert('Пожалуйста, введите корректные данные.');
-      return;
-    }
-    const now = Date.now();
-    const expiresMs = unit === 'minutes' ? now + value * 60 * 1000 : now + value * 60 * 60 * 1000;
-    try {
-      await addDoc(collection(db, 'rentals'), {
+    const mult = unit==='minutes' ? 60*1000 :
+                 unit==='hours'   ? 60*60*1000 :
+                 unit==='days'    ? 24*60*60*1000 : 60*60*1000;
+    const ms = now.getTime() + v * mult;
+    const max = now.getTime() + 10 * 365 * 24 * 3600 * 1000;
+    return Math.min(ms, max);
+  }
+
+  async function addUser(tier){
+    if(!window.__authUser){ alert('Пожалуйста, войдите через Google, чтобы добавлять аренды.'); return; }
+    const nicknameInput=document.getElementById('nickname');
+    const valueInput=document.getElementById('durationValue');
+    const unitSelect=document.getElementById('durationUnit');
+
+    const nickname=nicknameInput.value.trim();
+    const value=parseFloat(valueInput.value.trim());
+    const unit=unitSelect.value;
+
+    if(!nickname || !isFinite(value) || value<=0){ alert('Пожалуйста, введите корректные данные.'); return; }
+
+    const expiresMs = safeExpiryMs(value, unit);
+    if(!expiresMs){ alert('Некорректное время аренды.'); return; }
+
+    try{
+      await addDoc(collection(db,'rentals'),{
         nickname,
         expiresMs,
         tier,
         ownerUid: window.__authUser.uid,
-        notified: false,
+        notified:false,
         createdAt: serverTimestamp()
       });
-    } catch (e) {
-      alert('Ошибка добавления');
+    }catch(e){
+      alert('Ошибка добавления аренды. Попробуйте уменьшить срок и повторить.');
       return;
     }
-    nicknameInput.value = '';
-    valueInput.value = '';
-    unitSelect.value = 'hours';
-    syncCustomSelect('durationUnit', 'hours', 'Часы');
+
+    nicknameInput.value=''; valueInput.value=''; unitSelect.value='hours';
+    syncCustomSelect('durationUnit','hours','Часы');
+    showNotification('Аренда успешно добавлена');
   }
 
-  function initCustomSelect(id) {
-    const wrap = document.querySelector('.select-wrap[data-select="' + id + '"]');
-    const btn = wrap.querySelector('.select-toggle');
-    const menu = wrap.querySelector('.select-menu');
-    const native = document.getElementById(id);
+  function initCustomSelect(id){
+    const wrap=document.querySelector('.select-wrap[data-select="'+id+'"]');
+    const btn=wrap.querySelector('.select-toggle');
+    const menu=wrap.querySelector('.select-menu');
+    const native=document.getElementById(id);
+    const panel=wrap.closest('.panel');
 
-    function close() {
-      btn.setAttribute('aria-expanded', 'false');
-      menu.classList.remove('open');
-    }
+    function close(){ btn.setAttribute('aria-expanded','false'); menu.classList.remove('open'); if(panel) panel.classList.remove('bring-to-front'); }
+    function open(){ btn.setAttribute('aria-expanded','true'); menu.classList.add('open'); if(panel) panel.classList.add('bring-to-front'); menu.focus(); }
 
-    function open() {
-      btn.setAttribute('aria-expanded', 'true');
-      menu.classList.add('open');
-      menu.focus();
-    }
-
-    btn.addEventListener('click', () => {
-      if (menu.classList.contains('open')) close(); else open();
+    btn.addEventListener('click',()=>{ menu.classList.contains('open')?close():open(); });
+    menu.addEventListener('click',e=>{
+      const li=e.target.closest('[data-value]'); if(!li) return;
+      const value=li.getAttribute('data-value'); const label=li.textContent.trim();
+      native.value=value; btn.textContent=label;
+      menu.querySelectorAll('[aria-selected="true"]').forEach(el=>el.setAttribute('aria-selected','false'));
+      li.setAttribute('aria-selected','true'); close();
     });
-
-    menu.addEventListener('click', e => {
-      const li = e.target.closest('[data-value]');
-      if (!li) return;
-      const value = li.getAttribute('data-value');
-      const label = li.textContent.trim();
-      native.value = value;
-      btn.textContent = label;
-      menu.querySelectorAll('[aria-selected="true"]').forEach(el => el.setAttribute('aria-selected', 'false'));
-      li.setAttribute('aria-selected', 'true');
-      close();
-    });
-
-    document.addEventListener('click', e => {
-      if (!wrap.contains(e.target)) close();
-    });
-
-    menu.addEventListener('keydown', e => {
-      const items = Array.from(menu.querySelectorAll('[data-value]'));
-      const current = items.findIndex(i => i.getAttribute('aria-selected') === 'true');
-      if (e.key === 'Escape') close();
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const idx = Math.min(items.length - 1, current + 1);
-        items[idx].focus();
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const idx = Math.max(0, current - 1);
-        items[idx].focus();
-      }
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        const el = document.activeElement.closest('[data-value]') || items[current];
-        if (el) el.click();
-      }
+    document.addEventListener('click',e=>{ if(!wrap.contains(e.target)) close(); });
+    menu.addEventListener('keydown',e=>{
+      const items=[...menu.querySelectorAll('[data-value]')]; const current=items.findIndex(i=>i.getAttribute('aria-selected')==='true');
+      if(e.key==='Escape') close();
+      if(e.key==='ArrowDown'){ e.preventDefault(); (items[Math.min(items.length-1,current+1)]||items[0]).focus(); }
+      if(e.key==='ArrowUp'){ e.preventDefault(); (items[Math.max(0,current-1)]||items[0]).focus(); }
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); const el=document.activeElement.closest('[data-value]')||items[current]; if(el) el.click(); }
     });
   }
 
-  function syncCustomSelect(id, value, label) {
-    const wrap = document.querySelector('.select-wrap[data-select="' + id + '"]');
-    const btn = wrap.querySelector('.select-toggle');
-    const menu = wrap.querySelector('.select-menu');
-    const native = document.getElementById(id);
-    native.value = value;
-    btn.textContent = label;
-    menu.querySelectorAll('[aria-selected]').forEach(el => {
-      el.setAttribute('aria-selected', String(el.getAttribute('data-value') === value));
-    });
+  function syncCustomSelect(id,value,label){
+    const wrap=document.querySelector('.select-wrap[data-select="'+id+'"]');
+    const btn=wrap.querySelector('.select-toggle');
+    const menu=wrap.querySelector('.select-menu');
+    const native=document.getElementById(id);
+    native.value=value; btn.textContent=label;
+    menu.querySelectorAll('[aria-selected]').forEach(el=>el.setAttribute('aria-selected', String(el.getAttribute('data-value')===value)));
   }
 
-  function startRealtime(ownerUid) {
-    unsubscribe();
-    const q = query(collection(db, 'rentals'), where('ownerUid', '==', ownerUid));
-    unsub = onSnapshot(q, (snap) => {
-      const items = snap.docs.map(d => {
-        const data = d.data();
-        return { id: d.id, nickname: data.nickname || '', expiresMs: typeof data.expiresMs === 'number' ? data.expiresMs : 0, tier: data.tier || 'shared', ownerUid: data.ownerUid || '', notified: !!data.notified };
-      }).sort((a,b) => a.expiresMs - b.expiresMs);
+  function showNotification(msg){
+    const note=document.createElement('div');
+    note.className='notification'; note.textContent=msg;
+    document.body.appendChild(note); requestAnimationFrame(()=>note.classList.add('show'));
+    setTimeout(()=>{ note.classList.remove('show'); setTimeout(()=>note.remove(),500); },4000);
+  }
+
+  function renderInvites(){
+    const list=document.getElementById('invites-list'); if(!list) return;
+    list.innerHTML=''; sessionInvites.forEach(email=>{ const item=document.createElement('div'); item.className='invite-item'; item.textContent=email; list.appendChild(item); });
+  }
+
+  function openFriendModal(){
+    const modal=document.getElementById('friend-modal'); if(!modal) return;
+    modal.hidden=false;
+    const myEmailEl=document.getElementById('my-email');
+    const me=window.__authUser && window.__authUser.email ? window.__authUser.email : '';
+    if(myEmailEl) myEmailEl.textContent=me;
+    renderInvites();
+  }
+  function closeFriendModal(){ const modal=document.getElementById('friend-modal'); if(modal) modal.hidden=true; }
+
+  async function addFriendAction(){
+    if(!window.__authUser || !window.__authUser.email){ alert('Пожалуйста, войдите через Google.'); return; }
+    const input=document.getElementById('friend-email-input');
+    const friendEmail=input?String(input.value||'').trim().toLowerCase():'';
+    const myEmail=String(window.__authUser.email||'').trim().toLowerCase();
+    if(!friendEmail || friendEmail===myEmail){ alert('Введите корректную почту друга.'); return; }
+
+    let friendUidFound=null;
+    try{
+      const q=query(collection(db,'users'), where('email','==',friendEmail));
+      const snap=await getDocs(q);
+      snap.forEach(docSnap=>{ friendUidFound=docSnap.id; });
+    }catch(_){}
+    if(!friendUidFound){ alert('Пользователь не найден.'); return; }
+
+    const myUid=window.__authUser.uid;
+    if(friendUidFound===myUid){ alert('Невозможно добавить самого себя.'); return; }
+
+    try{
+      await updateDoc(doc(db,'users',myUid), {teamUid:friendUidFound});
+      await updateDoc(doc(db,'users',friendUidFound), {teamUid:myUid});
+    }catch(_){ alert('Ошибка добавления в команду.'); return; }
+
+    if(input) input.value='';
+    if(!sessionInvites.includes(friendEmail)) sessionInvites.push(friendEmail);
+    renderInvites();
+    teamUid=friendUidFound; closeFriendModal();
+    if(currentUid) startRealtime(currentUid);
+    showNotification('Команда успешно создана');
+  }
+
+  async function leaveTeamAction(){
+    if(!window.__authUser) return;
+    const myUid=window.__authUser.uid; const partner=teamUid;
+    try{
+      await updateDoc(doc(db,'users',myUid), {teamUid:null});
+      if(partner){
+        const p=await getDoc(doc(db,'users',partner));
+        if(p.exists() && p.data().teamUid===myUid) await updateDoc(doc(db,'users',partner), {teamUid:null});
+      }
+    }catch(_){ alert('Не удалось выйти из Team.'); return; }
+    teamUid=null; showNotification('Вы вышли из Team'); closeFriendModal(); if(currentUid) startRealtime(currentUid);
+  }
+
+  async function startRealtime(ownerUid){
+    unsubscribe(); currentUid=ownerUid;
+    const uids=[ownerUid];
+    try{
+      const ud=await getDoc(doc(db,'users',ownerUid));
+      if(ud && ud.exists()){
+        const data=ud.data();
+        if(data.teamUid){ teamUid=data.teamUid; if(!uids.includes(teamUid)) uids.push(teamUid); }
+        else teamUid=null;
+      } else teamUid=null;
+    }catch(_){}
+
+    let qRef;
+    if(uids.length===1) qRef=query(collection(db,'rentals'), where('ownerUid','==',ownerUid));
+    else qRef=query(collection(db,'rentals'), where('ownerUid','in',uids));
+
+    unsub=onSnapshot(qRef,(snap)=>{
+      const items=snap.docs.map(d=>{
+        const data=d.data(); const oUid=data.ownerUid||'';
+        return {
+          id:d.id,
+          nickname:data.nickname||'',
+          expiresMs: typeof data.expiresMs==='number' ? data.expiresMs : 0,
+          tier:data.tier||'shared',
+          ownerUid:oUid,
+          notified:!!data.notified,
+          team: teamUid && oUid===teamUid
+        };
+      }).sort((a,b)=>a.expiresMs-b.expiresMs);
       renderUsers(items);
     });
   }
 
-  function init() {
-    if ('Notification' in window) Notification.requestPermission();
+  function init(){
+    if('Notification' in window) Notification.requestPermission();
     initCustomSelect('durationUnit');
-    document.getElementById('add-shared-button').addEventListener('click', () => addUser('shared'));
-    document.getElementById('add-solo-button').addEventListener('click', () => addUser('solo'));
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(applyContainerScroll, 180);
-    });
-    document.addEventListener('auth:ready', (e) => {
-      const uid = e.detail && e.detail.uid ? e.detail.uid : null;
-      if (uid) startRealtime(uid);
-    });
-    document.addEventListener('auth:logout', () => {
-      unsubscribe();
-      renderUsers([]);
-    });
+    document.getElementById('add-shared-button').addEventListener('click',()=>addUser('shared'));
+    document.getElementById('add-solo-button').addEventListener('click',()=>addUser('solo'));
+    window.addEventListener('resize',()=>{ clearTimeout(resizeTimer); resizeTimer=setTimeout(applyContainerScroll,180); });
+    document.addEventListener('auth:ready',(e)=>{ const uid=e.detail && e.detail.uid ? e.detail.uid : null; if(uid) startRealtime(uid); showNotification('Успешный вход'); });
+    document.addEventListener('auth:logout',()=>{ unsubscribe(); renderUsers([]); teamUid=null; currentUid=null; });
+    document.addEventListener('friend:toggle',()=>{ const m=document.getElementById('friend-modal'); if(!m) return; if(m.hidden) openFriendModal(); else closeFriendModal(); });
+    const addBtn=document.getElementById('add-friend-confirm'); if(addBtn) addBtn.addEventListener('click', addFriendAction);
+    const leaveBtn=document.getElementById('leave-team'); if(leaveBtn) leaveBtn.addEventListener('click', leaveTeamAction);
+    const modal=document.getElementById('friend-modal'); if(modal){ modal.addEventListener('mousedown',(e)=>{ if(e.target===modal) closeFriendModal(); }); }
   }
 
   document.addEventListener('DOMContentLoaded', init);
