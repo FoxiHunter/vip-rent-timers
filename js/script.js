@@ -12,6 +12,8 @@ import {
   let teamUid = null;
   const sessionInvites = [];
 
+  function normalizeEmail(v){ return String(v||"").trim().toLowerCase().replace(/\s+/g,""); }
+
   function clearAllIntervals(){ for (const id of activeIntervals) clearInterval(id); activeIntervals = []; }
   function unsubscribe(){ if (typeof unsub === "function"){ try {unsub();} catch(_){} unsub = null; } }
 
@@ -109,9 +111,7 @@ import {
     const now = new Date();
     const v = Number(value);
     if (!isFinite(v) || v <= 0) return null;
-
     const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
-
     if (unit === 'months'){
       const whole = Math.floor(v);
       const fracDays = Math.round((v - whole) * 30);
@@ -225,14 +225,14 @@ import {
   async function addFriendAction(){
     if(!window.__authUser || !window.__authUser.email){ alert('Пожалуйста, войдите через Google.'); return; }
     const input=document.getElementById('friend-email-input');
-    const friendEmail=input?String(input.value||'').trim().toLowerCase():'';
-    const myEmail=String(window.__authUser.email||'').trim().toLowerCase();
-    if(!friendEmail || friendEmail===myEmail){ alert('Введите корректную почту друга.'); return; }
+    const friendEmailLc=normalizeEmail(input?input.value:'');
+    const myEmailLc=normalizeEmail(window.__authUser.email||'');
+    if(!friendEmailLc || friendEmailLc===myEmailLc){ alert('Введите корректную почту друга.'); return; }
 
     let friendUidFound=null;
     try{
-      const q=query(collection(db,'users'), where('email','==',friendEmail));
-      const snap=await getDocs(q);
+      const qRef=query(collection(db,'users'), where('email_lc','==',friendEmailLc));
+      const snap=await getDocs(qRef);
       snap.forEach(docSnap=>{ friendUidFound=docSnap.id; });
     }catch(_){}
     if(!friendUidFound){ alert('Пользователь не найден.'); return; }
@@ -246,7 +246,7 @@ import {
     }catch(_){ alert('Ошибка добавления в команду.'); return; }
 
     if(input) input.value='';
-    if(!sessionInvites.includes(friendEmail)) sessionInvites.push(friendEmail);
+    if(!sessionInvites.includes(friendEmailLc)) sessionInvites.push(friendEmailLc);
     renderInvites();
     teamUid=friendUidFound; closeFriendModal();
     if(currentUid) startRealtime(currentUid);

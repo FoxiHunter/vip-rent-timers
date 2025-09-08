@@ -2,6 +2,10 @@ import { auth, db, provider } from "./firebase.js";
 import { onAuthStateChanged, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
+function normalizeEmail(v) {
+  return String(v || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
 function ensureUI() {
   const header = document.querySelector(".app-header");
   let row = header.querySelector(".header-row");
@@ -66,25 +70,52 @@ function ensureUI() {
 
 function bind({ signInBtn, signOutBtn, indicator, friendBtn }) {
   signInBtn.addEventListener("click", async () => {
-    try { await signInWithPopup(auth, provider); } catch (e) { alert("Ошибка входа: " + (e && e.message ? e.message : e)); }
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      alert("Ошибка входа: " + (e && e.message ? e.message : e));
+    }
   });
   signOutBtn.addEventListener("click", async () => {
-    try { await signOut(auth); } catch (e) { alert("Ошибка выхода: " + (e && e.message ? e.message : e)); }
+    try {
+      await signOut(auth);
+    } catch (e) {
+      alert("Ошибка выхода: " + (e && e.message ? e.message : e));
+    }
   });
+
   signOutBtn.hidden = true;
   signInBtn.hidden = false;
   indicator.hidden = true;
   if (friendBtn) friendBtn.hidden = true;
+
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       signInBtn.hidden = true;
       signOutBtn.hidden = false;
       indicator.hidden = false;
       if (friendBtn) friendBtn.hidden = false;
-      window.__authUser = { uid: user.uid, displayName: user.displayName || "", email: user.email || "" };
+
+      window.__authUser = {
+        uid: user.uid,
+        displayName: user.displayName || "",
+        email: user.email || ""
+      };
+
       try {
-        await setDoc(doc(db, "users", user.uid), { displayName: user.displayName || "", email: user.email || "", lastLoginAt: serverTimestamp(), createdAt: serverTimestamp() }, { merge: true });
+        await setDoc(
+          doc(db, "users", user.uid),
+          {
+            displayName: user.displayName || "",
+            email: user.email || "",
+            email_lc: normalizeEmail(user.email || ""),
+            lastLoginAt: serverTimestamp(),
+            createdAt: serverTimestamp()
+          },
+          { merge: true }
+        );
       } catch (e) {}
+
       document.dispatchEvent(new CustomEvent("auth:ready", { detail: window.__authUser }));
     } else {
       signOutBtn.hidden = true;
@@ -97,8 +128,8 @@ function bind({ signInBtn, signOutBtn, indicator, friendBtn }) {
   });
 
   if (friendBtn) {
-    friendBtn.addEventListener('click', () => {
-      document.dispatchEvent(new Event('friend:toggle'));
+    friendBtn.addEventListener("click", () => {
+      document.dispatchEvent(new Event("friend:toggle"));
     });
   }
 }
