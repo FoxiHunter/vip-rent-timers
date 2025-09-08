@@ -250,35 +250,42 @@ import {
   }
   function closeFriendModal(){ const modal=document.getElementById('friend-modal'); if(modal) modal.hidden=true; }
 
-  async function addFriendAction() {
-    if (!window.__authUser || !window.__authUser.email) {
-      alert('Пожалуйста, войдите через Google.');
-      return;
-    }
-    const input = document.getElementById('friend-email-input');
-    const toEmailLc = normalizeEmail(input ? input.value : '');
-    const myEmailLc = normalizeEmail(window.__authUser.email || '');
-    if (!toEmailLc || toEmailLc === myEmailLc) { alert('Введите корректную почту друга.'); return; }
-
-    try {
-      await addDoc(collection(db, 'invites'), {
-        fromUid: window.__authUser.uid,
-        toEmail_lc: normalizeEmail(toEmail),
-        toEmail_raw_lc: String(toEmail).trim().toLowerCase(),
-        status: 'pending',
-        createdAt: serverTimestamp()
-    });
-    } catch (e) {
-      console.error('Ошибка создания инвайта', e);
-      alert('Ошибка создания инвайта: ' + (e?.message || e));
-      return;
-    }
-
-    if (input) input.value = '';
-    if (!sessionInvites.includes(toEmailLc)) sessionInvites.push(toEmailLc);
-    renderInvites();
-    showNotification('Инвайт отправлен. Человек увидит его после входа.');
+async function addFriendAction() {
+  if (!window.__authUser || !window.__authUser.email) {
+    alert('Пожалуйста, войдите через Google.');
+    return;
   }
+
+  const input = document.getElementById('friend-email-input');
+  const toEmailRaw = String(input ? input.value : '').trim().toLowerCase();
+  const toEmailLc = normalizeEmail(toEmailRaw);
+  const myEmailLc = normalizeEmail(window.__authUser.email || '');
+
+  if (!toEmailRaw || toEmailLc === myEmailLc) {
+    alert('Введите корректную почту друга.');
+    return;
+  }
+
+  try {
+    await addDoc(collection(db, 'invites'), {
+      fromUid: window.__authUser.uid,
+      toEmail_lc: toEmailLc,
+      toEmail_raw_lc: toEmailRaw,
+      status: 'pending',
+      createdAt: serverTimestamp()
+    });
+  } catch (e) {
+    console.error('Ошибка создания инвайта', e);
+    alert('Ошибка создания инвайта: ' + (e?.message || e));
+    return;
+  }
+
+  if (input) input.value = '';
+  if (!sessionInvites.includes(toEmailLc)) sessionInvites.push(toEmailLc);
+  renderInvites();
+  showNotification('Инвайт отправлен. Человек увидит его после входа.');
+}
+
 
   function watchIncomingInvites() {
     unsubscribeInvites();
