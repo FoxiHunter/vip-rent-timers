@@ -63,46 +63,28 @@ function ensureUI() {
     signOutBtn.hidden = true;
     box.appendChild(signOutBtn);
   }
-  let friendBtn = document.getElementById("friend-btn");
-  if (!friendBtn) {
-    friendBtn = document.createElement("button");
-    friendBtn.id = "friend-btn";
-    friendBtn.className = "btn friend-btn";
-    friendBtn.textContent = "🤝";
-    friendBtn.title = "Добавить друга";
-    friendBtn.hidden = true;
-    box.appendChild(friendBtn);
-  }
-  return { signInBtn, signOutBtn, indicator, friendBtn };
+  return { signInBtn, signOutBtn, indicator };
 }
 
-function bind({ signInBtn, signOutBtn, indicator, friendBtn }) {
+function bind({ signInBtn, signOutBtn, indicator }) {
   signInBtn.addEventListener("click", async () => {
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (e) {
-      alert("Ошибка входа: " + (e && e.message ? e.message : e));
-    }
+    try { await signInWithPopup(auth, provider); }
+    catch (e) { alert("Ошибка входа: " + (e && e.message ? e.message : e)); }
   });
   signOutBtn.addEventListener("click", async () => {
-    try {
-      await signOut(auth);
-    } catch (e) {
-      alert("Ошибка выхода: " + (e && e.message ? e.message : e));
-    }
+    try { await signOut(auth); }
+    catch (e) { alert("Ошибка выхода: " + (e && e.message ? e.message : e)); }
   });
 
   signOutBtn.hidden = true;
   signInBtn.hidden = false;
   indicator.hidden = true;
-  if (friendBtn) friendBtn.hidden = true;
 
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       signInBtn.hidden = true;
       signOutBtn.hidden = false;
       indicator.hidden = false;
-      if (friendBtn) friendBtn.hidden = false;
 
       window.__authUser = {
         uid: user.uid,
@@ -129,17 +111,10 @@ function bind({ signInBtn, signOutBtn, indicator, friendBtn }) {
       signOutBtn.hidden = true;
       signInBtn.hidden = false;
       indicator.hidden = true;
-      if (friendBtn) friendBtn.hidden = true;
       window.__authUser = null;
       document.dispatchEvent(new CustomEvent("auth:logout"));
     }
   });
-
-  if (friendBtn) {
-    friendBtn.addEventListener("click", () => {
-      document.dispatchEvent(new Event("friend:toggle"));
-    });
-  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

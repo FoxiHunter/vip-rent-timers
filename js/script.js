@@ -1,33 +1,14 @@
 import { db } from "./firebase.js";
-import {
-  collection, addDoc, serverTimestamp, onSnapshot, query,
-  deleteDoc, doc, where, updateDoc, getDoc
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { collection, addDoc, serverTimestamp, onSnapshot, query, deleteDoc, doc, where, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 (function () {
   let activeIntervals = [];
   let resizeTimer = null;
   let unsub = null;
-  let unsubInvites = null;
-  let currentUid = null;
-  let teamUid = null;
-  const sessionInvites = [];
-
-  function normalizeEmail(v) {
-    const s = String(v || "").trim().toLowerCase();
-    const m = s.match(/^([^@]+)@([^@]+)$/);
-    if (!m) return s;
-    let [_, local, domain] = m;
-    if (domain === "gmail.com" || domain === "googlemail.com") {
-      local = local.replace(/\./g, "").replace(/\+.*/, "");
-      domain = "gmail.com";
-    }
-    return `${local}@${domain}`;
-  }
+  let expiredFilter = 'all';
 
   function clearAllIntervals(){ for (const id of activeIntervals) clearInterval(id); activeIntervals = []; }
   function unsubscribe(){ if (typeof unsub === "function"){ try {unsub();} catch(_){} unsub = null; } }
-  function unsubscribeInvites(){ if (typeof unsubInvites === "function"){ try {unsubInvites();} catch(_){} unsubInvites = null; } }
 
   function applyContainerScroll(){
     const containers = document.querySelectorAll('.cards-container');
@@ -43,6 +24,36 @@ import {
 
   function ensureAppend(container, el){ if(el.parentElement!==container) container.appendChild(el); }
 
+  function formatDate(ms){
+    const d = new Date(ms);
+    const f = new Intl.DateTimeFormat('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+    return f.format(d);
+  }
+
+  function rangeForFilter(key){
+    const now=new Date();
+    const startOfDay=d=>{const x=new Date(d);x.setHours(0,0,0,0);return x.getTime();};
+    const shiftDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;};
+    if(key==='today'){return {from:startOfDay(now), to:now.getTime()};}
+    if(key==='yesterday'){const s=startOfDay(shiftDays(now,-1));const e=startOfDay(now);return {from:s,to:e};}
+    if(key==='daybefore'){const s=startOfDay(shiftDays(now,-2));const e=startOfDay(shiftDays(now,-1));return {from:s,to:e};}
+    if(key==='week'){return {from:now.getTime()-7*24*3600*1000,to:now.getTime()};}
+    if(key==='month'){return {from:now.getTime()-30*24*3600*1000,to:now.getTime()};}
+    return {from:-Infinity,to:now.getTime()};
+  }
+
+  function applyExpiredFilter(){
+    const r=rangeForFilter(expiredFilter);
+    ['expired-shared','expired-solo'].forEach(id=>{
+      const box=document.getElementById(id);
+      [...box.children].forEach(card=>{
+        const ms=Number(card.dataset.expires);
+        const show=ms>=r.from && ms<=r.to;
+        card.style.display=show?'':'none';
+      });
+    });
+  }
+
   function renderUsers(users){
     clearAllIntervals();
     const acShared=document.getElementById('active-shared');
@@ -54,19 +65,27 @@ import {
     users.forEach(user=>{
       const card=document.createElement('div');
       card.className='card';
-      card.innerHTML='<div class="card-top"><div class="nick"></div><div class="status-badge"></div></div><div class="time-left"></div><div class="actions-row"><button class="delete">Удалить</button></div>';
+      card.dataset.expires=String(user.expiresMs);
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="nick"></div>
+          <div class="status-badge"></div>
+        </div>
+        <div class="expires-at"></div>
+        <div class="time-left"></div>
+        <div class="actions-row"><button class="delete">Удалить</button></div>
+      `;
+
       const nick=card.querySelector('.nick');
       const badge=card.querySelector('.status-badge');
       const timeLeft=card.querySelector('.time-left');
+      const expiresAtEl=card.querySelector('.expires-at');
       const del=card.querySelector('.delete');
+
       nick.textContent=user.nickname;
       badge.textContent='Активно';
-      if(user.team){
-        card.classList.add('team-owned');
-        const tb=document.createElement('span');
-        tb.className='team-badge'; tb.textContent='Team';
-        card.querySelector('.card-top').appendChild(tb);
-      }
+      expiresAtEl.textContent='Окончание: ' + formatDate(user.expiresMs);
+
       del.addEventListener('click', async()=>{
         const me=window.__authUser && window.__authUser.uid ? window.__authUser.uid : null;
         if(!me || me!==user.ownerUid){ alert('Удалять может только владелец записи.'); return; }
@@ -76,6 +95,8 @@ import {
       async function updateTime(){
         const now=Date.now();
         const diff=user.expiresMs-now;
+        expiresAtEl.textContent='Окончание: ' + formatDate(user.expiresMs);
+
         if(diff<=0){
           ensureAppend(user.tier==='solo'?exSolo:exShared, card);
           if(card.dataset.state!=='expired'){
@@ -91,16 +112,19 @@ import {
             try{ await updateDoc(doc(db,'rentals',user.id), {notified:true}); }catch(_){}
             const audio=document.getElementById('notificationSound');
             if(audio){ audio.currentTime=0; audio.play(); setTimeout(()=>{ try{audio.pause(); audio.currentTime=0;}catch(_){}} ,5000); }
-            showNotification('Аренда '+user.nickname+' просрочена');
+            if('Notification' in window && Notification.permission==='granted'){ try{ new Notification('Аренда просрочена',{body:user.nickname}); }catch(_){ } }
           }
+          applyExpiredFilter();
           return;
         }
+
         const totalSeconds=Math.floor(diff/1000);
         const days=Math.floor(totalSeconds/(24*3600));
         const hours=Math.floor((totalSeconds%(24*3600))/3600);
         const minutes=Math.floor((totalSeconds%3600)/60);
         const seconds=totalSeconds%60;
         const target=user.tier==='solo'?acSolo:acShared;
+
         if(card.dataset.state!=='active'){
           ensureAppend(target, card);
           card.dataset.state='active';
@@ -108,15 +132,18 @@ import {
           card.classList.add('anim-enter-active');
           setTimeout(()=>card.classList.remove('anim-enter-active'),600);
         } else ensureAppend(target, card);
+
         badge.textContent='Активно';
         timeLeft.textContent='Оставшееся время: '+(days>0?(days+'д '):'')+hours+'ч '+minutes+'м '+seconds+'с';
       }
+
       updateTime();
       const id=setInterval(updateTime,1000);
       activeIntervals.push(id);
     });
 
     applyContainerScroll();
+    applyExpiredFilter();
   }
 
   function safeExpiryMs(value, unit){
@@ -131,7 +158,7 @@ import {
       d.setHours(0,0,0,0);
       d.setMonth(d.getMonth() + clamp(whole, 0, 120));
       d.setDate(d.getDate() + clamp(fracDays, 0, 31));
-      return Math.min(d.getTime(), now.getTime() + 10 * 365 * 24 * 3600 * 1000);
+      return Math.min(d.getTime(), now.getTime(), now.getTime() + 10 * 365 * 24 * 3600 * 1000);
     }
     const mult = unit==='minutes' ? 60*1000 :
                  unit==='hours'   ? 60*60*1000 :
@@ -172,7 +199,6 @@ import {
 
     nicknameInput.value=''; valueInput.value=''; unitSelect.value='hours';
     syncCustomSelect('durationUnit','hours','Часы');
-    showNotification('Аренда успешно добавлена');
   }
 
   function initCustomSelect(id){
@@ -181,10 +207,8 @@ import {
     const menu=wrap.querySelector('.select-menu');
     const native=document.getElementById(id);
     const panel=wrap.closest('.panel');
-
-    function close(){ btn.setAttribute('aria-expanded','false'); menu.classList.remove('open'); if(panel) panel.classList.remove('bring-to-front'); }
-    function open(){ btn.setAttribute('aria-expanded','true'); menu.classList.add('open'); if(panel) panel.classList.add('bring-to-front'); menu.focus(); }
-
+    function close(){ btn.setAttribute('aria-expanded','false'); menu.classList.remove('open'); wrap.classList.remove('open'); if(panel) panel.classList.remove('bring-to-front'); }
+    function open(){ btn.setAttribute('aria-expanded','true'); menu.classList.add('open'); wrap.classList.add('open'); if(panel) panel.classList.add('bring-to-front'); menu.focus(); }
     btn.addEventListener('click',()=>{ menu.classList.contains('open')?close():open(); });
     menu.addEventListener('click',e=>{
       const li=e.target.closest('[data-value]'); if(!li) return;
@@ -192,6 +216,7 @@ import {
       native.value=value; btn.textContent=label;
       menu.querySelectorAll('[aria-selected="true"]').forEach(el=>el.setAttribute('aria-selected','false'));
       li.setAttribute('aria-selected','true'); close();
+      native.dispatchEvent(new Event('change',{bubbles:true}));
     });
     document.addEventListener('click',e=>{ if(!wrap.contains(e.target)) close(); });
     menu.addEventListener('keydown',e=>{
@@ -212,168 +237,13 @@ import {
     menu.querySelectorAll('[aria-selected]').forEach(el=>el.setAttribute('aria-selected', String(el.getAttribute('data-value')===value)));
   }
 
-  function showNotification(msg){
-    const note=document.createElement('div');
-    note.className='notification'; note.textContent=msg;
-    document.body.appendChild(note); requestAnimationFrame(()=>note.classList.add('show'));
-    setTimeout(()=>{ note.classList.remove('show'); setTimeout(()=>note.remove(),500); },4000);
-  }
-
-  function renderInvites(){
-    const list=document.getElementById('invites-list'); if(!list) return;
-    list.innerHTML=''; sessionInvites.forEach(email=>{ const item=document.createElement('div'); item.className='invite-item'; item.textContent=email; list.appendChild(item); });
-  }
-
-  function renderIncomingInvites(invites) {
-    const list = document.getElementById('incoming-invites');
-    if (!list) return;
-    list.innerHTML = '';
-    invites.forEach(inv => {
-      const row = document.createElement('div');
-      row.className = 'invite-item';
-      const label = document.createElement('div');
-      label.textContent = `Приглашение от ${inv.fromEmail_raw || inv.fromEmail_lc || inv.fromUid}`;
-      const btns = document.createElement('div');
-      const acceptBtn = document.createElement('button');
-      acceptBtn.textContent = 'Принять';
-      acceptBtn.addEventListener('click', () => acceptInvite(inv.id, inv.fromUid));
-      const declineBtn = document.createElement('button');
-      declineBtn.textContent = 'Отказать';
-      declineBtn.style.marginLeft = '8px';
-      declineBtn.addEventListener('click', () => declineInvite(inv.id));
-      btns.appendChild(acceptBtn);
-      btns.appendChild(declineBtn);
-      row.appendChild(label);
-      row.appendChild(btns);
-      list.appendChild(row);
-    });
-  }
-
-  function openFriendModal(){
-    const modal=document.getElementById('friend-modal'); if(!modal) return;
-    modal.hidden=false;
-    const myEmailEl=document.getElementById('my-email');
-    const me=window.__authUser && window.__authUser.email ? window.__authUser.email : '';
-    if(myEmailEl) myEmailEl.textContent=me;
-    renderInvites();
-  }
-  function closeFriendModal(){ const modal=document.getElementById('friend-modal'); if(modal) modal.hidden=true; }
-
-  async function addFriendAction() {
-    if (!window.__authUser || !window.__authUser.email) {
-      alert('Пожалуйста, войдите через Google.');
-      return;
-    }
-
-    const input = document.getElementById('friend-email-input');
-    const toEmailRaw = String(input ? input.value : '').trim().toLowerCase();
-    const toEmailLc = normalizeEmail(toEmailRaw);
-    const myEmailLc = normalizeEmail(window.__authUser.email || '');
-
-    if (!toEmailRaw || toEmailLc === myEmailLc) {
-      alert('Введите корректную почту друга.');
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, 'invites'), {
-        fromUid: window.__authUser.uid,
-        fromEmail_lc: normalizeEmail(window.__authUser.email || ''),
-        fromEmail_raw: window.__authUser.email || '',
-        toEmail_lc: toEmailLc,
-        toEmail_raw_lc: toEmailRaw,
-        status: 'pending',
-        createdAt: serverTimestamp()
-      });
-    } catch (e) {
-      console.error('Ошибка создания инвайта', e);
-      alert('Ошибка создания инвайта: ' + (e?.message || e));
-      return;
-    }
-
-    if (input) input.value = '';
-    if (!sessionInvites.includes(toEmailLc)) sessionInvites.push(toEmailLc);
-    renderInvites();
-    showNotification('Инвайт отправлен. Человек увидит его после входа.');
-  }
-
-  function watchIncomingInvites() {
-    unsubscribeInvites();
-    if (!window.__authUser || !window.__authUser.email) return;
-    const myEmailLc = normalizeEmail(window.__authUser.email);
-    const qRef = query(collection(db, 'invites'),
-      where('toEmail_lc', '==', myEmailLc),
-      where('status', '==', 'pending')
-    );
-    unsubInvites = onSnapshot(qRef, (snap) => {
-      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderIncomingInvites(items);
-    });
-  }
-
-  async function acceptInvite(inviteId, fromUid) {
-    if (!window.__authUser) return;
-    try {
-      await updateDoc(doc(db, 'users', window.__authUser.uid), { teamUid: fromUid });
-      await updateDoc(doc(db, 'invites', inviteId), { status: 'accepted' });
-      showNotification('Команда связана');
-      if (currentUid) startRealtime(currentUid);
-    } catch (e) {
-      console.error('Ошибка принятия инвайта', e);
-      alert('Ошибка принятия инвайта: ' + (e?.message || e));
-    }
-  }
-
-  async function declineInvite(inviteId){
-    try {
-      await updateDoc(doc(db,'invites', inviteId), { status:'declined' });
-      showNotification('Приглашение отклонено');
-    } catch(e){
-      console.error('Ошибка отклонения инвайта', e);
-      alert('Ошибка отклонения: ' + (e?.message || e));
-    }
-  }
-
-  async function leaveTeamAction(){
-    if(!window.__authUser) return;
-    const myUid=window.__authUser.uid;
-    try{
-      await updateDoc(doc(db,'users',myUid), {teamUid:null});
-    }catch(e){
-      alert('Не удалось выйти из Team: ' + (e?.message || e));
-      return;
-    }
-    teamUid=null; showNotification('Вы вышли из Team'); closeFriendModal(); if(currentUid) startRealtime(currentUid);
-  }
-
-  async function startRealtime(ownerUid){
-    unsubscribe(); currentUid=ownerUid;
-    const uids=[ownerUid];
-    try{
-      const ud=await getDoc(doc(db,'users',ownerUid));
-      if(ud && ud.exists()){
-        const data=ud.data();
-        if(data.teamUid){ teamUid=data.teamUid; if(!uids.includes(teamUid)) uids.push(teamUid); }
-        else teamUid=null;
-      } else teamUid=null;
-    }catch(_){}
-
-    let qRef;
-    if(uids.length===1) qRef=query(collection(db,'rentals'), where('ownerUid','==',ownerUid));
-    else qRef=query(collection(db,'rentals'), where('ownerUid','in',uids));
-
+  function startRealtime(ownerUid){
+    unsubscribe();
+    const qRef=query(collection(db,'rentals'), where('ownerUid','==',ownerUid));
     unsub=onSnapshot(qRef,(snap)=>{
       const items=snap.docs.map(d=>{
-        const data=d.data(); const oUid=data.ownerUid||'';
-        return {
-          id:d.id,
-          nickname:data.nickname||'',
-          expiresMs: typeof data.expiresMs==='number' ? data.expiresMs : 0,
-          tier:data.tier||'shared',
-          ownerUid:oUid,
-          notified:!!data.notified,
-          team: teamUid && oUid===teamUid
-        };
+        const data=d.data();
+        return {id:d.id,nickname:data.nickname||'',expiresMs: typeof data.expiresMs==='number' ? data.expiresMs : 0,tier:data.tier||'shared',ownerUid:data.ownerUid||'',notified:!!data.notified};
       }).sort((a,b)=>a.expiresMs-b.expiresMs);
       renderUsers(items);
     });
@@ -382,15 +252,14 @@ import {
   function init(){
     if('Notification' in window) Notification.requestPermission();
     initCustomSelect('durationUnit');
+    initCustomSelect('expiredFilter');
     document.getElementById('add-shared-button').addEventListener('click',()=>addUser('shared'));
     document.getElementById('add-solo-button').addEventListener('click',()=>addUser('solo'));
+    const ef=document.getElementById('expiredFilter');
+    ef.addEventListener('change',()=>{ expiredFilter=ef.value; applyExpiredFilter(); });
     window.addEventListener('resize',()=>{ clearTimeout(resizeTimer); resizeTimer=setTimeout(applyContainerScroll,180); });
-    document.addEventListener('auth:ready',(e)=>{ const uid=e.detail && e.detail.uid ? e.detail.uid : null; if(uid) startRealtime(uid); watchIncomingInvites(); showNotification('Успешный вход'); });
-    document.addEventListener('auth:logout',()=>{ unsubscribe(); unsubscribeInvites(); renderUsers([]); teamUid=null; currentUid=null; });
-    document.addEventListener('friend:toggle',()=>{ const m=document.getElementById('friend-modal'); if(!m) return; if(m.hidden) openFriendModal(); else closeFriendModal(); });
-    const addBtn=document.getElementById('add-friend-confirm'); if(addBtn) addBtn.addEventListener('click', addFriendAction);
-    const leaveBtn=document.getElementById('leave-team'); if(leaveBtn) leaveBtn.addEventListener('click', leaveTeamAction);
-    const modal=document.getElementById('friend-modal'); if(modal){ modal.addEventListener('mousedown',(e)=>{ if(e.target===modal) closeFriendModal(); }); }
+    document.addEventListener('auth:ready',(e)=>{ const uid=e.detail && e.detail.uid ? e.detail.uid : null; if(uid) startRealtime(uid); });
+    document.addEventListener('auth:logout',()=>{ unsubscribe(); renderUsers([]); });
   }
 
   document.addEventListener('DOMContentLoaded', init);

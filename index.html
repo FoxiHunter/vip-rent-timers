@@ -71,7 +71,31 @@
       </section>
 
       <section id="expired-section" class="panel">
-        <h2>Просроченные аренды</h2>
+        <div class="panel-head-with-filter">
+          <h2>Просроченные аренды</h2>
+          <div class="filterbar">
+            <label>Фильтр</label>
+            <div class="select-wrap" data-select="expiredFilter">
+              <button type="button" class="select-toggle" aria-haspopup="listbox" aria-expanded="false">За всё время</button>
+              <ul class="select-menu" role="listbox" tabindex="-1">
+                <li role="option" data-value="all" aria-selected="true">За всё время</li>
+                <li role="option" data-value="today">За сегодня</li>
+                <li role="option" data-value="yesterday">За вчера</li>
+                <li role="option" data-value="daybefore">За позавчера</li>
+                <li role="option" data-value="week">За неделю</li>
+                <li role="option" data-value="month">За месяц</li>
+              </ul>
+            </div>
+            <select id="expiredFilter" class="native-select-hidden">
+              <option value="all" selected>За всё время</option>
+              <option value="today">За сегодня</option>
+              <option value="yesterday">За вчера</option>
+              <option value="daybefore">За позавчера</option>
+              <option value="week">За неделю</option>
+              <option value="month">За месяц</option>
+            </select>
+          </div>
+        </div>
         <div class="panel-grid">
           <div class="subpanel">
             <div class="subpanel-head">
@@ -92,36 +116,9 @@
 
   <audio id="notificationSound" src="audio/notification.mp3"></audio>
 
-  <div id="friend-modal" class="modal" hidden>
-    <div class="modal-content">
-      <h3>Добавить друга</h3>
-      <div class="form-row">
-        <label>Ваша почта</label>
-        <div id="my-email" class="my-email"></div>
-      </div>
-      <div class="form-row">
-        <label for="friend-email-input">Почта друга</label>
-        <input type="email" id="friend-email-input" placeholder="Введите почту друга" />
-      </div>
-
-      <div class="invites-container">
-        <div class="invites-title">Исходящие приглашения</div>
-        <div id="invites-list" class="invites-list"></div>
-      </div>
-
-      <div class="invites-container">
-       <div class="invites-title">Входящие приглашения</div>
-       <div id="incoming-invites" class="invites-list"></div>
-      </div>
-      <div class="actions">
-        <button id="add-friend-confirm" class="btn primary">Добавить</button>
-        <button id="leave-team" class="btn secondary">Выйти из Team</button>
-      </div>
-    </div>
-  </div>
-
   <script type="module" src="js/firebase.js"></script>
   <script type="module" src="js/auth.js"></script>
   <script type="module" src="js/script.js"></script>
+  <script type="module" src="js/snow.js"></script>
 </body>
 </html>
